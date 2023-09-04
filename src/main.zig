@@ -67,8 +67,8 @@ pub const Workbook = struct {
     }
 };
 
-const ColumnIndex = c.lxw_col_t;
-const RowIndex = c.lxw_row_t;
+pub const ColumnIndex = c.lxw_col_t;
+pub const RowIndex = c.lxw_row_t;
 
 pub const Worksheet = struct {
     alloc: std.mem.Allocator,
