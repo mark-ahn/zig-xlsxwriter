@@ -70,7 +70,7 @@ pub const Workbook = struct {
 const ColumnIndex = c.lxw_col_t;
 const RowIndex = c.lxw_row_t;
 
-const Worksheet = struct {
+pub const Worksheet = struct {
     alloc: std.mem.Allocator,
     ptr: *c.lxw_worksheet,
 
@@ -106,7 +106,7 @@ const Worksheet = struct {
     }
 };
 
-const Format = struct {
+pub const Format = struct {
     ptr: *c.lxw_format,
 
     const Self = @This();
