@@ -45,7 +45,7 @@ pub const Workbook = struct {
         return;
     }
 
-    pub fn add_worksheet(self: *Self, sheetname: ?[]const u8) !Worksheet {
+    pub fn addWorksheet(self: *Self, sheetname: ?[]const u8) !Worksheet {
         var sheetname_z: ?[:0]u8 = null;
         if (sheetname) |name| {
             sheetname_z = try self.alloc.allocSentinel(u8, name.len, 0);
@@ -59,7 +59,7 @@ pub const Workbook = struct {
         };
     }
 
-    pub fn add_format(self: *Self) Format {
+    pub fn addFormat(self: *Self) Format {
         var format = c.workbook_add_format(@ptrCast(self.ptr));
         return Format{
             .ptr = format,
@@ -91,12 +91,12 @@ const Worksheet = struct {
         return;
     }
 
-    pub fn write_number(self: *Self, row: RowIndex, col: ColumnIndex, number: f64, format: ?*Format) !void {
+    pub fn writeNumber(self: *Self, row: RowIndex, col: ColumnIndex, number: f64, format: ?*Format) !void {
         var err_num = c.worksheet_write_number(@ptrCast(self.ptr), row, col, number, @ptrCast(if (format) |f| f.ptr else null));
         if (errors.lxwErrorFromInt(err_num)) |err| return err;
         return;
     }
-    pub fn insert_image(self: *Self, row: RowIndex, col: ColumnIndex, filename: []const u8) !void {
+    pub fn insertImage(self: *Self, row: RowIndex, col: ColumnIndex, filename: []const u8) !void {
         var filename_z: [:0]u8 = try self.alloc.allocSentinel(u8, filename.len, 0);
         defer self.alloc.free(filename_z);
         std.mem.copy(u8, filename_z, filename);
@@ -125,10 +125,10 @@ test "official example" {
     };
     // std.debug.print("!!!", .{});
 
-    var sheet = try book.add_worksheet(null);
+    var sheet = try book.addWorksheet(null);
 
     // /* Add a format. */
-    var format = book.add_format();
+    var format = book.addFormat();
     // /* Set the bold property for the format */
     format.setBold();
 
@@ -142,9 +142,9 @@ test "official example" {
     try sheet.writeString(1, 0, "Zig", &format);
 
     // /* Write some numbers. */
-    try sheet.write_number(2, 0, 123, null);
-    try sheet.write_number(3, 0, 123.456, null);
+    try sheet.writeNumber(2, 0, 123, null);
+    try sheet.writeNumber(3, 0, 123.456, null);
 
     // /* Insert an image. */
-    try sheet.insert_image(1, 2, "tests/logo.png");
+    try sheet.insertImage(1, 2, "tests/logo.png");
 }
