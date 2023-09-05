@@ -1,4 +1,5 @@
 // there's maybe zig's translation problems, struct_headname does not declared
+// this file maybe make this package not portable (this file should be generated)
 pub const struct_headname = opaque {};
 
 // all of follows are generated

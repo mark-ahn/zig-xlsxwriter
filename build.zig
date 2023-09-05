@@ -63,8 +63,8 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     // main_tests.defineCMacro("_WIN32", if (is_windows) "1" else null);
-    main_tests.linkLibrary(xlsxwriter);
-    main_tests.installLibraryHeaders(xlsxwriter);
+    main_tests.linkLibrary(lib);
+    // main_tests.installLibraryHeaders(xlsxwriter);
 
     // main_tests.linkLibrary(zlib);
     // main_tests.installLibraryHeaders(zlib);
