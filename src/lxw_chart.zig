@@ -1,4 +1,5 @@
 const std = @import("std");
+const testing = std.testing;
 const c = @import("cimport_1.1.5.zig");
 
 const core = @import("core.zig");
@@ -24,13 +25,13 @@ pub const ChartSeries = struct {
     pub fn setName(self: *Self, name: ?[]const u8) !void {
         const name_z = if (name) |name_| try self.ally.dupeZ(u8, name_) else null;
         defer if (name_z) |name_| self.ally.free(name_);
-        c.chart_series_set_name(self.ptr, name_z);
+        c.chart_series_set_name(self.ptr, name_z orelse null);
     }
     // Set a series name formula using row and column values. More...
     pub fn setNameRange(self: *Self, sheetname: ?[]const u8, cell: core.Cell) !void {
         const sheetname_z = if (sheetname) |name| try self.ally.dupeZ(u8, name) else null;
         defer if (sheetname_z) |name| self.ally.free(name);
-        c.chart_series_set_name_range(self.ptr, sheetname_z, cell.row, cell.col);
+        c.chart_series_set_name_range(self.ptr, sheetname_z orelse null, cell.row, cell.col);
     }
     // Set the line properties for a chart series. More...
     pub fn setLine(self: *Self, line: *ChartLine) !void {
@@ -60,7 +61,23 @@ const ChartPattern = struct {
     ptr: *c.lxw_chart_pattern,
 };
 
-test ChartSeries {}
+test ChartSeries {
+    const lxw = @import("main.zig");
+    const filename = "tmp.xlsx";
+    var book = try lxw.Workbook.init(testing.allocator, "tmp.xlsx");
+    defer book.deinit() catch std.log.err("fail to deinit of Workbool {s}", .{filename});
+
+    var sheet = try book.addWorksheet(null);
+    _ = sheet;
+    var chart_sheet = try book.addChartsheet(null);
+    var chart = try book.addChart(lxw.Chart.Type.line);
+
+    var series = try chart.addSeries(null, "Sheet1!$A$1:$A$5");
+    try series.setName("default");
+
+    try chart_sheet.setChart(&chart);
+    // sheet.insertChart(try lxw.Cell.of("A1"), chart: *Chart);
+}
 
 // void 	chart_series_set_marker_type (lxw_chart_series *series, uint8_t type)
 //  	Set the data marker type for a series. More...
