@@ -9,6 +9,7 @@ const errors = @import("errors.zig");
 const Allocator = std.mem.Allocator;
 
 pub const core = @import("core.zig");
+pub const charts = @import("lxw_chart.zig");
 pub usingnamespace core;
 
 fn fromLxwError(err: c.lxw_error) ?XlsxError {
@@ -231,13 +232,14 @@ pub const Chart = struct {
         radar_filled = c.LXW_CHART_RADAR_FILLED,
     };
 
-    pub fn addSeries(self: *Self, categories: ?[]const u8, values: []const u8) !ChartSeries {
+    pub fn addSeries(self: *Self, categories: ?[]const u8, values: []const u8) !charts.ChartSeries {
         const cates_z = if (categories) |cates| try self.ally.dupeZ(u8, cates) else null;
         defer if (cates_z) |cates| self.ally.free(cates);
         const values_z = try self.ally.dupeZ(u8, values);
         defer self.ally.free(values_z);
         const series = c.chart_add_series(self.ptr, cates_z orelse @ptrCast(c.NULL), values_z);
-        return ChartSeries{
+        return charts.ChartSeries{
+            .ally = self.ally,
             .ptr = series,
         };
     }
@@ -275,9 +277,9 @@ pub const Chartsheet = struct {
     }
 };
 
-pub const ChartSeries = struct {
-    ptr: *c.lxw_chart_series,
-};
+// pub const ChartSeries = struct {
+//     ptr: *c.lxw_chart_series,
+// };
 
 pub const Format = struct {
     ptr: *c.lxw_format,
