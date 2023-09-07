@@ -79,6 +79,25 @@ pub const Workbook = struct {
             .ally = self.ally,
         };
     }
+
+    pub fn getWorksheetByName(self: *Self, name: []const u8) !Workbook {
+        const name_z = try self.ally.dupeZ(u8, name);
+        defer self.ally.free(name_z);
+        const sheet = c.workbook_get_worksheet_by_name(self.ptr, name_z);
+        return Worksheet{
+            .ally = self.ally,
+            .ptr = sheet,
+        };
+    }
+    pub fn getChartsheetByName(self: *Self, name: []const u8) !Workbook {
+        const name_z = try self.ally.dupeZ(u8, name);
+        defer self.ally.free(name_z);
+        const sheet = c.workbook_get_chartsheet_by_name(self.ptr, name_z);
+        return Chartsheet{
+            .ally = self.ally,
+            .ptr = sheet,
+        };
+    }
 };
 
 pub const Worksheet = struct {
