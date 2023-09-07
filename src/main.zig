@@ -8,6 +8,9 @@ const c = @import("cimport_1.1.5.zig");
 const errors = @import("errors.zig");
 const Allocator = std.mem.Allocator;
 
+pub const core = @import("core.zig");
+pub usingnamespace core;
+
 fn fromLxwError(err: c.lxw_error) ?XlsxError {
     return switch (err) {
         0 => null,
@@ -68,7 +71,7 @@ pub const Workbook = struct {
         };
     }
 
-    pub fn addChart(self: *Self, chart_type: ChartType) !Chart {
+    pub fn addChart(self: *Self, chart_type: Chart.Type) !Chart {
         const chart = c.workbook_add_chart(self.ptr, @intFromEnum(chart_type));
         return Chart{
             .ptr = chart,
@@ -77,107 +80,21 @@ pub const Workbook = struct {
     }
 };
 
-// /* Max col string length. */
-// #define LXW_MAX_COL_NAME_LENGTH   sizeof("$XFD")
-const max_col_name_length = "$XFD".len;
-
-// /* Max row string length. */
-// #define LXW_MAX_ROW_NAME_LENGTH   sizeof("$1048576")
-const max_row_name_length = "$1048576".len;
-
-// /* Max cell string length. */
-// #define LXW_MAX_CELL_NAME_LENGTH  sizeof("$XFWD$1048576")
-const max_cell_name_length = "$XFWD$1048576".len;
-
-// /* Max range: $XFWD$1048576:$XFWD$1048576\0 */
-// #define LXW_MAX_CELL_RANGE_LENGTH (LXW_MAX_CELL_NAME_LENGTH * 2)
-const max_cell_range_length = max_cell_name_length * 2;
-
-pub const ColumnIndex = c.lxw_col_t;
-pub const RowIndex = c.lxw_row_t;
-pub const Cell = struct {
-    row: RowIndex,
-    col: ColumnIndex,
-    pub fn intoOwnedRepr(self: @This(), ally: std.mem.Allocator) ![]u8 {
-        var repr = try ally.allocSentinel(u8, max_row_name_length, 0);
-        defer ally.free(repr);
-        @memset(repr, 0);
-        c.lxw_rowcol_to_cell(repr.ptr, self.row, self.col);
-        return try ally.dupe(u8, std.mem.span(repr.ptr));
-    }
-    pub fn of(cell: []const u8) !Cell {
-        // const cell_z = try ally.dupeZ(u8, cell);
-        // defer ally.free(cell_z);
-        return .{
-            .row = try lxw_name_to_row(cell),
-            .col = try lxw_name_to_col(cell),
-        };
-    }
-
-    fn lxw_name_to_row(row_str: []const u8) !RowIndex {
-        var digit_position = row_str.len;
-        for (row_str, 0..) |char, i| {
-            if (std.ascii.isDigit(char)) {
-                digit_position = i;
-                break;
-            }
-        }
-        const digit_part = row_str[digit_position..];
-        if (digit_part.len == 0) return 0;
-        const row_num = try std.fmt.parseUnsigned(RowIndex, digit_part, 0);
-        return @intCast(row_num -| 1);
-    }
-
-    fn lxw_name_to_col(col_str: []const u8) !ColumnIndex {
-        var col_num: ColumnIndex = 0;
-
-        for (col_str) |char| {
-            if (!std.ascii.isUpper(char)) break;
-            if (char == '$') continue;
-            col_num = (col_num * 26) + (char - 'A' + 1);
-        }
-
-        return col_num -| 1;
-    }
-};
-test Cell {
-    const cell: Cell = .{
-        .row = 0,
-        .col = 0,
-    };
-    const repr = try cell.intoOwnedRepr(testing.allocator);
-    defer testing.allocator.free(repr);
-
-    try testing.expect(std.mem.eql(u8, repr, "A1"));
-    try testing.expectEqual(cell, try Cell.of("A1"));
-}
-pub const Rows = struct {
-    first: RowIndex,
-    last: RowIndex,
-};
-pub const Cols = struct {
-    first: ColumnIndex,
-    last: ColumnIndex,
-};
-pub const Range = struct {
-    first: Cell,
-    last: Cell,
-};
-
 pub const Worksheet = struct {
     ally: std.mem.Allocator,
     ptr: *c.lxw_worksheet,
 
     const Self = @This();
     // pub fn setColumn(self: *Self, first_col: ColumnIndex, last_col: ColumnIndex, width: f64, format: ?*Format) !void {
-    pub fn setColumn(self: *Self, cols: Cols, width: f64, format: ?*Format) !void {
+    pub fn setColumn(self: *Self, cols: core.Cols, width: f64, format: ?*Format) !void {
         // var d: c.lxw_col_t = undefined;
+
         var err_num = c.worksheet_set_column(@ptrCast(self.ptr), cols.first, cols.last, width, @ptrCast(if (format) |f| f.ptr else null));
         if (errors.lxwErrorFromInt(err_num)) |err| return err;
         return;
     }
 
-    pub fn writeString(self: *Self, cell: Cell, string: []const u8, format: ?*Format) !void {
+    pub fn writeString(self: *Self, cell: core.Cell, string: []const u8, format: ?*Format) !void {
         var string_z: [:0]u8 = try self.ally.allocSentinel(u8, string.len, 0);
         defer self.ally.free(string_z);
         std.mem.copy(u8, string_z, string);
@@ -186,12 +103,12 @@ pub const Worksheet = struct {
         return;
     }
 
-    pub fn writeNumber(self: *Self, cell: Cell, number: f64, format: ?*Format) !void {
+    pub fn writeNumber(self: *Self, cell: core.Cell, number: f64, format: ?*Format) !void {
         var err_num = c.worksheet_write_number(@ptrCast(self.ptr), cell.row, cell.col, number, @ptrCast(if (format) |f| f.ptr else null));
         if (errors.lxwErrorFromInt(err_num)) |err| return err;
         return;
     }
-    pub fn insertImage(self: *Self, cell: Cell, filename: []const u8) !void {
+    pub fn insertImage(self: *Self, cell: core.Cell, filename: []const u8) !void {
         var filename_z: [:0]u8 = try self.ally.allocSentinel(u8, filename.len, 0);
         defer self.ally.free(filename_z);
         std.mem.copy(u8, filename_z, filename);
@@ -205,7 +122,7 @@ pub const Worksheet = struct {
     // lxw_col_t 	col,
     // lxw_chart * 	chart
     // )
-    pub fn insertChart(self: *Worksheet, cell: Cell, chart: *Chart) !void {
+    pub fn insertChart(self: *Worksheet, cell: core.Cell, chart: *Chart) !void {
         const errno = c.worksheet_insert_chart(self.ptr, cell.row, cell.col, chart.ptr);
         if (errors.lxwErrorFromInt(errno)) |err| return err;
         return;
@@ -220,6 +137,100 @@ pub const Chart = struct {
     ptr: *c.lxw_chart,
     ally: std.mem.Allocator,
     const Self = @This();
+    pub const Type = enum(u8) {
+        // LXW_CHART_NONE
+        // None.
+        none = c.LXW_CHART_NONE,
+
+        // LXW_CHART_AREA
+        // Area chart.
+        area = c.LXW_CHART_AREA,
+
+        // LXW_CHART_AREA_STACKED
+        // Area chart - stacked.
+        area_stacked = c.LXW_CHART_AREA_STACKED,
+
+        // LXW_CHART_AREA_STACKED_PERCENT
+        // Area chart - percentage stacked.
+        area_stacked_percent = c.LXW_CHART_AREA_STACKED_PERCENT,
+
+        // LXW_CHART_BAR
+        // Bar chart.
+        bar = c.LXW_CHART_BAR,
+
+        // LXW_CHART_BAR_STACKED
+        // Bar chart - stacked.
+        bar_stacked = c.LXW_CHART_BAR_STACKED,
+
+        // LXW_CHART_BAR_STACKED_PERCENT
+        // Bar chart - percentage stacked.
+        bar_stacked_percent = c.LXW_CHART_BAR_STACKED_PERCENT,
+
+        // LXW_CHART_COLUMN
+        // Column chart.
+        column = c.LXW_CHART_COLUMN,
+
+        // LXW_CHART_COLUMN_STACKED
+        // Column chart - stacked.
+        column_stacked = c.LXW_CHART_COLUMN_STACKED,
+
+        // LXW_CHART_COLUMN_STACKED_PERCENT
+        // Column chart - percentage stacked.
+        column_stacked_percent = c.LXW_CHART_COLUMN_STACKED_PERCENT,
+
+        // LXW_CHART_DOUGHNUT
+        // Doughnut chart.
+        doughnut = c.LXW_CHART_DOUGHNUT,
+
+        // LXW_CHART_LINE
+        // Line chart.
+        line = c.LXW_CHART_LINE,
+
+        // LXW_CHART_LINE_STACKED
+        // Line chart - stacked.
+        line_stacked = c.LXW_CHART_LINE_STACKED,
+
+        // LXW_CHART_LINE_STACKED_PERCENT
+        // Line chart - percentage stacked.
+        line_stacked_percent = c.LXW_CHART_LINE_STACKED_PERCENT,
+
+        // LXW_CHART_PIE
+        // Pie chart.
+        pie = c.LXW_CHART_PIE,
+
+        // LXW_CHART_SCATTER
+        // Scatter chart.
+        scatter = c.LXW_CHART_SCATTER,
+
+        // LXW_CHART_SCATTER_STRAIGHT
+        // Scatter chart - straight.
+        scatter_straight = c.LXW_CHART_SCATTER_STRAIGHT,
+
+        // LXW_CHART_SCATTER_STRAIGHT_WITH_MARKERS
+        // Scatter chart - straight with markers.
+        scatter_straight_with_markers = c.LXW_CHART_SCATTER_STRAIGHT_WITH_MARKERS,
+
+        // LXW_CHART_SCATTER_SMOOTH
+        // Scatter chart - smooth.
+        scatter_smooth = c.LXW_CHART_SCATTER_SMOOTH,
+
+        // LXW_CHART_SCATTER_SMOOTH_WITH_MARKERS
+        // Scatter chart - smooth with markers.
+        scatter_smooth_with_markers = c.LXW_CHART_SCATTER_SMOOTH_WITH_MARKERS,
+
+        // LXW_CHART_RADAR
+        // Radar chart.
+        radar = c.LXW_CHART_RADAR,
+
+        // LXW_CHART_RADAR_WITH_MARKERS
+        // Radar chart - with markers.
+        radar_with_markers = c.LXW_CHART_RADAR_WITH_MARKERS,
+
+        // LXW_CHART_RADAR_FILLED
+        // Radar chart - filled.
+        radar_filled = c.LXW_CHART_RADAR_FILLED,
+    };
+
     pub fn addSeries(self: *Self, categories: ?[]const u8, values: []const u8) !ChartSeries {
         const cates_z = if (categories) |cates| try self.ally.dupeZ(u8, cates) else null;
         defer if (cates_z) |cates| self.ally.free(cates);
@@ -238,6 +249,16 @@ pub const Chart = struct {
     pub fn titleSetNameFont(self: *Self, font: *ChartFont) void {
         c.chart_title_set_name_font(self.ptr, font.ptr);
     }
+    pub fn axisGet(self: *Self, axis_type: ChartAxis.Type) ChartAxis {
+        c.chart_axis_get(self.ptr, @intFromEnum(axis_type));
+    }
+};
+pub const ChartAxis = struct {
+    ptr: *c.lxw_chart_axis,
+    const Type = enum(c.lxw_chart_axis_type) {
+        x = c.LXW_CHART_AXIS_TYPE_X,
+        y = c.LXW_CHART_AXIS_TYPE_Y,
+    };
 };
 pub const Chartsheet = struct {
     ptr: *c.lxw_chartsheet,
@@ -302,101 +323,6 @@ test "official example" {
     try sheet.insertImage(.{ .row = 1, .col = 2 }, "tests/logo.png");
 }
 
-pub const ChartType = enum(u8) {
-
-    // LXW_CHART_NONE
-    // None.
-    none = c.LXW_CHART_NONE,
-
-    // LXW_CHART_AREA
-    // Area chart.
-    area = c.LXW_CHART_AREA,
-
-    // LXW_CHART_AREA_STACKED
-    // Area chart - stacked.
-    area_stacked = c.LXW_CHART_AREA_STACKED,
-
-    // LXW_CHART_AREA_STACKED_PERCENT
-    // Area chart - percentage stacked.
-    area_stacked_percent = c.LXW_CHART_AREA_STACKED_PERCENT,
-
-    // LXW_CHART_BAR
-    // Bar chart.
-    bar = c.LXW_CHART_BAR,
-
-    // LXW_CHART_BAR_STACKED
-    // Bar chart - stacked.
-    bar_stacked = c.LXW_CHART_BAR_STACKED,
-
-    // LXW_CHART_BAR_STACKED_PERCENT
-    // Bar chart - percentage stacked.
-    bar_stacked_percent = c.LXW_CHART_BAR_STACKED_PERCENT,
-
-    // LXW_CHART_COLUMN
-    // Column chart.
-    column = c.LXW_CHART_COLUMN,
-
-    // LXW_CHART_COLUMN_STACKED
-    // Column chart - stacked.
-    column_stacked = c.LXW_CHART_COLUMN_STACKED,
-
-    // LXW_CHART_COLUMN_STACKED_PERCENT
-    // Column chart - percentage stacked.
-    column_stacked_percent = c.LXW_CHART_COLUMN_STACKED_PERCENT,
-
-    // LXW_CHART_DOUGHNUT
-    // Doughnut chart.
-    doughnut = c.LXW_CHART_DOUGHNUT,
-
-    // LXW_CHART_LINE
-    // Line chart.
-    line = c.LXW_CHART_LINE,
-
-    // LXW_CHART_LINE_STACKED
-    // Line chart - stacked.
-    line_stacked = c.LXW_CHART_LINE_STACKED,
-
-    // LXW_CHART_LINE_STACKED_PERCENT
-    // Line chart - percentage stacked.
-    line_stacked_percent = c.LXW_CHART_LINE_STACKED_PERCENT,
-
-    // LXW_CHART_PIE
-    // Pie chart.
-    pie = c.LXW_CHART_PIE,
-
-    // LXW_CHART_SCATTER
-    // Scatter chart.
-    scatter = c.LXW_CHART_SCATTER,
-
-    // LXW_CHART_SCATTER_STRAIGHT
-    // Scatter chart - straight.
-    scatter_straight = c.LXW_CHART_SCATTER_STRAIGHT,
-
-    // LXW_CHART_SCATTER_STRAIGHT_WITH_MARKERS
-    // Scatter chart - straight with markers.
-    scatter_straight_with_markers = c.LXW_CHART_SCATTER_STRAIGHT_WITH_MARKERS,
-
-    // LXW_CHART_SCATTER_SMOOTH
-    // Scatter chart - smooth.
-    scatter_smooth = c.LXW_CHART_SCATTER_SMOOTH,
-
-    // LXW_CHART_SCATTER_SMOOTH_WITH_MARKERS
-    // Scatter chart - smooth with markers.
-    scatter_smooth_with_markers = c.LXW_CHART_SCATTER_SMOOTH_WITH_MARKERS,
-
-    // LXW_CHART_RADAR
-    // Radar chart.
-    radar = c.LXW_CHART_RADAR,
-
-    // LXW_CHART_RADAR_WITH_MARKERS
-    // Radar chart - with markers.
-    radar_with_markers = c.LXW_CHART_RADAR_WITH_MARKERS,
-
-    // LXW_CHART_RADAR_FILLED
-    // Radar chart - filled.
-    radar_filled = c.LXW_CHART_RADAR_FILLED,
-};
-
 test "chart example" {
     // /* Write some data to the worksheet. */
     const d = struct {
@@ -449,7 +375,7 @@ test "chart example" {
     // std.log.debug("{}", .{font_option});
     var chart_font = try ChartFont.init(testing.allocator, .{
         .bold = true,
-        .color = Colors.green.toInt(),
+        .color = core.Colors.green.toInt(),
     });
     defer chart_font.deinit();
     // var c_font = try font_option.intoCFont(testing.allocator);
@@ -471,76 +397,6 @@ test "chart example" {
 //     col: ColumnIndex,
 // };
 
-const Color = u32;
-const Colors = enum(Color) {
-    // LXW_COLOR_BLACK
-    // Black
-    black = c.LXW_COLOR_BLACK,
-
-    // LXW_COLOR_BLUE
-    // Blue
-    blue = c.LXW_COLOR_BLUE,
-
-    // LXW_COLOR_BROWN
-    // Brown
-    brown = c.LXW_COLOR_BROWN,
-
-    // LXW_COLOR_CYAN
-    // Cyan
-    cyan = c.LXW_COLOR_CYAN,
-
-    // LXW_COLOR_GRAY
-    // Gray
-    gray = c.LXW_COLOR_GRAY,
-
-    // LXW_COLOR_GREEN
-    // Green
-    green = c.LXW_COLOR_GREEN,
-
-    // LXW_COLOR_LIME
-    // Lime
-    lime = c.LXW_COLOR_LIME,
-
-    // LXW_COLOR_MAGENTA
-    // Magenta
-    // magenta = c.LXW_COLOR_MAGENTA,
-
-    // LXW_COLOR_NAVY
-    // Navy
-    navy = c.LXW_COLOR_NAVY,
-
-    // LXW_COLOR_ORANGE
-    // Orange
-    orange = c.LXW_COLOR_ORANGE,
-
-    // LXW_COLOR_PINK
-    // Pink
-    pink = c.LXW_COLOR_PINK,
-
-    // LXW_COLOR_PURPLE
-    // Purple
-    purple = c.LXW_COLOR_PURPLE,
-
-    // LXW_COLOR_RED
-    // Red
-    red = c.LXW_COLOR_RED,
-
-    // LXW_COLOR_SILVER
-    // Silver
-    silver = c.LXW_COLOR_SILVER,
-
-    // LXW_COLOR_WHITE
-    // White
-    white = c.LXW_COLOR_WHITE,
-
-    // LXW_COLOR_YELLOW
-    // Yellow
-    yellow = c.LXW_COLOR_YELLOW,
-
-    pub fn toInt(self: @This()) Color {
-        return @intFromEnum(self);
-    }
-};
 const ChartFontOption = struct {
     // char * 	name
     name: ?[]const u8 = null,
@@ -555,7 +411,7 @@ const ChartFontOption = struct {
     // int32_t 	rotation
     rotation: u32 = 0,
     // lxw_color_t 	color
-    color: Color = 0,
+    color: core.Color = 0,
     // uint8_t 	pitch_family
     pitch_family: u8 = 0,
     // uint8_t 	charset
