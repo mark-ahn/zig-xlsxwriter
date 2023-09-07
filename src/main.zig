@@ -21,40 +21,42 @@ const XlsxError = error{
 };
 
 pub const Workbook = struct {
-    alloc: Allocator,
+    ally: Allocator,
     ptr: *c.lxw_workbook,
-    filename_z: [:0]const u8,
 
     const Self = @This();
-    pub fn init(alloc: Allocator, filename: []const u8) !Workbook {
-        var filename_z: [:0]u8 = try alloc.allocSentinel(u8, filename.len, 0);
-        // defer alloc.free(filename_z);
-        std.mem.copy(u8, filename_z, filename);
+    pub fn init(ally: Allocator, filename: []const u8) !Workbook {
+        var filename_z = try ally.dupeZ(u8, filename);
+        defer ally.free(filename_z);
         var book = c.workbook_new(filename_z);
         return Workbook{
-            .alloc = alloc,
+            .ally = ally,
             .ptr = book,
-            .filename_z = filename_z,
         };
     }
 
     pub fn deinit(self: *Self) !void {
-        defer self.alloc.free(self.filename_z);
         var err_num = c.workbook_close(@ptrCast(self.ptr));
         if (errors.lxwErrorFromInt(err_num)) |err| return err;
         return;
     }
 
     pub fn addWorksheet(self: *Self, sheetname: ?[]const u8) !Worksheet {
-        var sheetname_z: ?[:0]u8 = null;
-        if (sheetname) |name| {
-            sheetname_z = try self.alloc.allocSentinel(u8, name.len, 0);
-            std.mem.copy(u8, sheetname_z.?, name);
-        }
-        defer if (sheetname_z) |name| self.alloc.free(name);
+        var sheetname_z: ?[:0]u8 = if (sheetname) |name| try self.ally.dupeZ(u8, name) else null;
+        defer if (sheetname_z) |name| self.ally.free(name);
         var sheet = c.workbook_add_worksheet(@ptrCast(self.ptr), sheetname_z orelse null);
         return Worksheet{
-            .alloc = self.alloc,
+            .ally = self.ally,
+            .ptr = sheet,
+        };
+    }
+
+    pub fn addChartsheet(self: *Self, sheetname: ?[]const u8) !Chartsheet {
+        var sheetname_z: ?[:0]u8 = if (sheetname) |name| try self.ally.dupeZ(u8, name) else null;
+        defer if (sheetname_z) |name| self.ally.free(name);
+        var sheet = c.workbook_add_chartsheet(@ptrCast(self.ptr), sheetname_z orelse null);
+        return Chartsheet{
+            .ally = self.ally,
             .ptr = sheet,
         };
     }
@@ -70,45 +72,130 @@ pub const Workbook = struct {
         const chart = c.workbook_add_chart(self.ptr, @intFromEnum(chart_type));
         return Chart{
             .ptr = chart,
-            .ally = self.alloc,
+            .ally = self.ally,
         };
     }
 };
 
+// /* Max col string length. */
+// #define LXW_MAX_COL_NAME_LENGTH   sizeof("$XFD")
+const max_col_name_length = "$XFD".len;
+
+// /* Max row string length. */
+// #define LXW_MAX_ROW_NAME_LENGTH   sizeof("$1048576")
+const max_row_name_length = "$1048576".len;
+
+// /* Max cell string length. */
+// #define LXW_MAX_CELL_NAME_LENGTH  sizeof("$XFWD$1048576")
+const max_cell_name_length = "$XFWD$1048576".len;
+
+// /* Max range: $XFWD$1048576:$XFWD$1048576\0 */
+// #define LXW_MAX_CELL_RANGE_LENGTH (LXW_MAX_CELL_NAME_LENGTH * 2)
+const max_cell_range_length = max_cell_name_length * 2;
+
 pub const ColumnIndex = c.lxw_col_t;
 pub const RowIndex = c.lxw_row_t;
+pub const Cell = struct {
+    row: RowIndex,
+    col: ColumnIndex,
+    pub fn intoOwnedRepr(self: @This(), ally: std.mem.Allocator) ![]u8 {
+        var repr = try ally.allocSentinel(u8, max_row_name_length, 0);
+        defer ally.free(repr);
+        @memset(repr, 0);
+        c.lxw_rowcol_to_cell(repr.ptr, self.row, self.col);
+        return try ally.dupe(u8, std.mem.span(repr.ptr));
+    }
+    pub fn of(cell: []const u8) !Cell {
+        // const cell_z = try ally.dupeZ(u8, cell);
+        // defer ally.free(cell_z);
+        return .{
+            .row = try lxw_name_to_row(cell),
+            .col = try lxw_name_to_col(cell),
+        };
+    }
+
+    fn lxw_name_to_row(row_str: []const u8) !RowIndex {
+        var digit_position = row_str.len;
+        for (row_str, 0..) |char, i| {
+            if (std.ascii.isDigit(char)) {
+                digit_position = i;
+                break;
+            }
+        }
+        const digit_part = row_str[digit_position..];
+        if (digit_part.len == 0) return 0;
+        const row_num = try std.fmt.parseUnsigned(RowIndex, digit_part, 0);
+        return @intCast(row_num -| 1);
+    }
+
+    fn lxw_name_to_col(col_str: []const u8) !ColumnIndex {
+        var col_num: ColumnIndex = 0;
+
+        for (col_str) |char| {
+            if (!std.ascii.isUpper(char)) break;
+            if (char == '$') continue;
+            col_num = (col_num * 26) + (char - 'A' + 1);
+        }
+
+        return col_num -| 1;
+    }
+};
+test Cell {
+    const cell: Cell = .{
+        .row = 0,
+        .col = 0,
+    };
+    const repr = try cell.intoOwnedRepr(testing.allocator);
+    defer testing.allocator.free(repr);
+
+    try testing.expect(std.mem.eql(u8, repr, "A1"));
+    try testing.expectEqual(cell, try Cell.of("A1"));
+}
+pub const Rows = struct {
+    first: RowIndex,
+    last: RowIndex,
+};
+pub const Cols = struct {
+    first: ColumnIndex,
+    last: ColumnIndex,
+};
+pub const Range = struct {
+    first: Cell,
+    last: Cell,
+};
 
 pub const Worksheet = struct {
-    alloc: std.mem.Allocator,
+    ally: std.mem.Allocator,
     ptr: *c.lxw_worksheet,
 
     const Self = @This();
-    pub fn setColumn(self: *Self, first_col: ColumnIndex, last_col: ColumnIndex, width: f64, format: ?*Format) !void {
+    // pub fn setColumn(self: *Self, first_col: ColumnIndex, last_col: ColumnIndex, width: f64, format: ?*Format) !void {
+    pub fn setColumn(self: *Self, cols: Cols, width: f64, format: ?*Format) !void {
         // var d: c.lxw_col_t = undefined;
-        var err_num = c.worksheet_set_column(@ptrCast(self.ptr), first_col, last_col, width, @ptrCast(if (format) |f| f.ptr else null));
+        var err_num = c.worksheet_set_column(@ptrCast(self.ptr), cols.first, cols.last, width, @ptrCast(if (format) |f| f.ptr else null));
         if (errors.lxwErrorFromInt(err_num)) |err| return err;
         return;
     }
 
-    pub fn writeString(self: *Self, row: RowIndex, col: ColumnIndex, string: []const u8, format: ?*Format) !void {
-        var string_z: [:0]u8 = try self.alloc.allocSentinel(u8, string.len, 0);
-        defer self.alloc.free(string_z);
+    pub fn writeString(self: *Self, cell: Cell, string: []const u8, format: ?*Format) !void {
+        var string_z: [:0]u8 = try self.ally.allocSentinel(u8, string.len, 0);
+        defer self.ally.free(string_z);
         std.mem.copy(u8, string_z, string);
-        var err_num = c.worksheet_write_string(@ptrCast(self.ptr), row, col, string_z, @ptrCast(if (format) |f| f.ptr else null));
+        var err_num = c.worksheet_write_string(@ptrCast(self.ptr), cell.row, cell.col, string_z, @ptrCast(if (format) |f| f.ptr else null));
         if (errors.lxwErrorFromInt(err_num)) |err| return err;
         return;
     }
 
-    pub fn writeNumber(self: *Self, row: RowIndex, col: ColumnIndex, number: f64, format: ?*Format) !void {
-        var err_num = c.worksheet_write_number(@ptrCast(self.ptr), row, col, number, @ptrCast(if (format) |f| f.ptr else null));
+    pub fn writeNumber(self: *Self, cell: Cell, number: f64, format: ?*Format) !void {
+        var err_num = c.worksheet_write_number(@ptrCast(self.ptr), cell.row, cell.col, number, @ptrCast(if (format) |f| f.ptr else null));
         if (errors.lxwErrorFromInt(err_num)) |err| return err;
         return;
     }
-    pub fn insertImage(self: *Self, row: RowIndex, col: ColumnIndex, filename: []const u8) !void {
-        var filename_z: [:0]u8 = try self.alloc.allocSentinel(u8, filename.len, 0);
-        defer self.alloc.free(filename_z);
+    pub fn insertImage(self: *Self, cell: Cell, filename: []const u8) !void {
+        var filename_z: [:0]u8 = try self.ally.allocSentinel(u8, filename.len, 0);
+        defer self.ally.free(filename_z);
         std.mem.copy(u8, filename_z, filename);
-        var err_num = c.worksheet_insert_image(@ptrCast(self.ptr), row, col, filename_z);
+        var err_num = c.worksheet_insert_image(@ptrCast(self.ptr), cell.row, cell.col, filename_z);
         if (errors.lxwErrorFromInt(err_num)) |err| return err;
         return;
     }
@@ -118,10 +205,14 @@ pub const Worksheet = struct {
     // lxw_col_t 	col,
     // lxw_chart * 	chart
     // )
-    pub fn insertChart(self: *Worksheet, row: RowIndex, col: ColumnIndex, chart: *Chart) !void {
-        const errno = c.worksheet_insert_chart(self.ptr, @intCast(row), @intCast(col), chart.ptr);
+    pub fn insertChart(self: *Worksheet, cell: Cell, chart: *Chart) !void {
+        const errno = c.worksheet_insert_chart(self.ptr, cell.row, cell.col, chart.ptr);
         if (errors.lxwErrorFromInt(errno)) |err| return err;
         return;
+    }
+
+    pub fn active(self: *Self) void {
+        c.worksheet_activate(self.ptr);
     }
 };
 
@@ -145,7 +236,21 @@ pub const Chart = struct {
         c.chart_title_set_name(self.ptr, name_z);
     }
     pub fn titleSetNameFont(self: *Self, font: *ChartFont) void {
-        c.chart_title_set_name_font(self.ptr, &font.underlying);
+        c.chart_title_set_name_font(self.ptr, font.ptr);
+    }
+};
+pub const Chartsheet = struct {
+    ptr: *c.lxw_chartsheet,
+    ally: std.mem.Allocator,
+    const Self = @This();
+
+    pub fn setChart(self: *Self, chart: *Chart) !void {
+        const errno = c.chartsheet_set_chart(self.ptr, chart.ptr);
+        if (errors.lxwErrorFromInt(errno)) |err| return err;
+        return;
+    }
+    pub fn active(self: *Self) void {
+        c.chartsheet_activate(self.ptr);
     }
 };
 
@@ -181,20 +286,20 @@ test "official example" {
     format.setBold();
 
     // /* Change the column width for clarity. */
-    try sheet.setColumn(0, 0, 20, null);
+    try sheet.setColumn(.{ .first = 0, .last = 0 }, 20, null);
 
     // /* Write some simple text. */
-    try sheet.writeString(0, 0, "Hello?", null);
+    try sheet.writeString(.{ .row = 0, .col = 0 }, "Hello?", null);
 
     // /* Text with formatting. */
-    try sheet.writeString(1, 0, "Zig", &format);
+    try sheet.writeString(.{ .row = 1, .col = 0 }, "Zig", &format);
 
     // /* Write some numbers. */
-    try sheet.writeNumber(2, 0, 123, null);
-    try sheet.writeNumber(3, 0, 123.456, null);
+    try sheet.writeNumber(.{ .row = 2, .col = 0 }, 123, null);
+    try sheet.writeNumber(.{ .row = 3, .col = 0 }, 123.456, null);
 
     // /* Insert an image. */
-    try sheet.insertImage(1, 2, "tests/logo.png");
+    try sheet.insertImage(.{ .row = 1, .col = 2 }, "tests/logo.png");
 }
 
 pub const ChartType = enum(u8) {
@@ -295,7 +400,7 @@ pub const ChartType = enum(u8) {
 test "chart example" {
     // /* Write some data to the worksheet. */
     const d = struct {
-        fn write_worksheet_data(sheet: *Worksheet) !void {
+        fn writeWorksheetData(sheet: *Worksheet) !void {
             const data: [5][3]u8 = .{
                 // /* Three columns of data. */
                 .{ 1, 2, 3 },
@@ -307,7 +412,7 @@ test "chart example" {
 
             for (data, 0..) |row_data, row| {
                 for (row_data, 0..) |d, col| {
-                    try sheet.writeNumber(@intCast(row), @intCast(col), @floatFromInt(d), null);
+                    try sheet.writeNumber(.{ .row = @intCast(row), .col = @intCast(col) }, @floatFromInt(d), null);
                 }
             }
         }
@@ -324,7 +429,7 @@ test "chart example" {
     var sheet = try book.addWorksheet(null);
 
     // /* Write some data for the chart. */
-    try d.write_worksheet_data(&sheet);
+    try d.writeWorksheetData(&sheet);
 
     // /* Create a chart object. */
     // lxw_chart *chart = workbook_add_chart(workbook, LXW_CHART_COLUMN);
@@ -337,17 +442,28 @@ test "chart example" {
     _ = try chart.addSeries(null, "Sheet1!$B$1:$B$5");
     _ = try chart.addSeries(null, "Sheet1!$C$1:$C$5");
 
-    // var chart_font = try ChartFont.init(testing.allocator, .{
+    // var font_option = ChartFontOption{
     //     .bold = true,
     //     .color = @intFromEnum(Colors.blue),
-    // });
-    // defer chart_font.deinit();
+    // };
+    // std.log.debug("{}", .{font_option});
+    var chart_font = try ChartFont.init(testing.allocator, .{
+        .bold = true,
+        .color = Colors.green.toInt(),
+    });
+    defer chart_font.deinit();
+    // var c_font = try font_option.intoCFont(testing.allocator);
+    // defer ChartFontOption.releaseName(&c_font, testing.allocator);
+    // var chart_font = ChartFont{
+    //     .ally = testing.allocator,
+    //     .ptr = &c_font,
+    // };
 
     try chart.titleSetName("Year End Results");
-    // chart.titleSetNameFont(&chart_font);
+    chart.titleSetNameFont(&chart_font);
 
     // /* Insert the chart into the worksheet. */
-    try sheet.insertChart(8, 1, &chart);
+    try sheet.insertChart(.{ .row = 8, .col = 1 }, &chart);
 }
 
 // const Cell = struct {
@@ -420,6 +536,10 @@ const Colors = enum(Color) {
     // LXW_COLOR_YELLOW
     // Yellow
     yellow = c.LXW_COLOR_YELLOW,
+
+    pub fn toInt(self: @This()) Color {
+        return @intFromEnum(self);
+    }
 };
 const ChartFontOption = struct {
     // char * 	name
@@ -442,47 +562,83 @@ const ChartFontOption = struct {
     charset: u8 = 0,
     // int8_t 	baseline
     baseline: i8 = 0,
+
+    pub fn intoCFont(option: @This(), ally: std.mem.Allocator) !c.lxw_chart_font {
+        return c.lxw_chart_font{
+            .name = if (option.name) |name| try ally.dupeZ(u8, name) else @ptrFromInt(0),
+            .size = @floatCast(option.size),
+            .bold = @intFromBool(option.bold),
+            .italic = @intFromBool(option.italic),
+            .underline = @intFromBool(option.underline),
+            .rotation = @intCast(option.rotation),
+            .color = @intCast(option.color),
+            .pitch_family = @intCast(option.pitch_family),
+            .charset = @intCast(option.charset),
+            .baseline = @intCast(option.baseline),
+        };
+    }
+    pub fn releaseName(cfont: *c.lxw_chart_font, ally: std.mem.Allocator) void {
+        const name = cfont.name;
+        if (@intFromPtr(name) != 0) {
+            ally.free(std.mem.span(name));
+            cfont.name = @ptrCast(c.NULL);
+        }
+    }
 };
 
 const ChartFont = struct {
     ally: std.mem.Allocator,
-    underlying: c.lxw_chart_font,
+    ptr: *c.lxw_chart_font,
 
     const Self = @This();
     pub fn init(ally: std.mem.Allocator, option: ChartFontOption) !Self {
+        var cfont = try ally.create(c.lxw_chart_font);
+        cfont.* = try option.intoCFont(ally);
         return Self{
             .ally = ally,
-            .underlying = c.lxw_chart_font{
-                .name = if (option.name) |name| try ally.dupeZ(u8, name) else @ptrFromInt(0),
-                // .name = @ptrCast(c.NULL),
-                .size = @floatCast(option.size),
-                .bold = @intFromBool(option.bold),
-                .italic = @intFromBool(option.italic),
-                .underline = @intFromBool(option.underline),
-                .rotation = @intCast(option.rotation),
-                .color = @intCast(option.color),
-                .pitch_family = @intCast(option.color),
-                .charset = @intCast(option.charset),
-                .baseline = @intCast(option.baseline),
-                // .name = @ptrFromInt(0),
-                // .size = 0,
-                // .italic = 0,
-                // .underline = 0,
-                // .rotation = 0,
-                // .pitch_family = 0,
-                // .charset = 0,
-                // .baseline = 0,
-                // .bold = c.LXW_EXPLICIT_FALSE,
-                // .color = c.LXW_COLOR_BLUE,
-            },
+            .ptr = cfont,
         };
     }
     pub fn deinit(self: *Self) void {
-        const name = self.underlying.name;
-        if (@intFromPtr(name) == 0) return;
-        self.ally.free(name);
+        ChartFontOption.releaseName(self.ptr, self.ally);
+        self.ally.destroy(self.ptr);
     }
 };
+
+test "chart sheet" {
+    const d = struct {
+        fn writeWorksheetData(sheet: *Worksheet) !void {
+            const data: [5][3]u8 = .{
+                // /* Three columns of data. */
+                .{ 1, 2, 3 },
+                .{ 2, 4, 6 },
+                .{ 3, 6, 9 },
+                .{ 4, 8, 12 },
+                .{ 5, 10, 15 },
+            };
+
+            for (data, 0..) |row_data, row| {
+                for (row_data, 0..) |d, col| {
+                    try sheet.writeNumber(.{ .row = @intCast(row), .col = @intCast(col) }, @floatFromInt(d), null);
+                }
+            }
+        }
+    };
+
+    var book = try Workbook.init(testing.allocator, "chartsheet.xlsx");
+    defer book.deinit() catch std.log.err("cannot deinit workbook", .{});
+    var sheet = try book.addWorksheet(null);
+    try d.writeWorksheetData(&sheet);
+
+    var chartsheet = try book.addChartsheet(null);
+    var chart = try book.addChart(.bar);
+    _ = try chart.addSeries(null, "Sheet1!$A$1:$A$5");
+    _ = try chart.addSeries(null, "Sheet1!$B$1:$B$5");
+    _ = try chart.addSeries(null, "Sheet1!$C$1:$C$5");
+
+    try chartsheet.setChart(&chart);
+    chartsheet.active();
+}
 
 // test "c-ex" {
 //     const d = struct {
