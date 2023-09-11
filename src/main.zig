@@ -105,14 +105,11 @@ pub const Worksheet = struct {
     ptr: *c.lxw_worksheet,
 
     const Self = @This();
-    // pub fn setColumn(self: *Self, first_col: ColumnIndex, last_col: ColumnIndex, width: f64, format: ?*Format) !void {
-    pub fn setColumn(self: *Self, cols: core.Cols, width: f64, format: ?*Format) !void {
-        // var d: c.lxw_col_t = undefined;
-
-        var err_num = c.worksheet_set_column(@ptrCast(self.ptr), cols.first, cols.last, width, @ptrCast(if (format) |f| f.ptr else null));
-        if (errors.lxwErrorFromInt(err_num)) |err| return err;
-        return;
-    }
+    // pub fn setColumn(self: *Self, cols: core.Cols, width: f64, format: ?*Format) !void {
+    //     var err_num = c.worksheet_set_column(@ptrCast(self.ptr), cols.first, cols.last, width, @ptrCast(if (format) |f| f.ptr else null));
+    //     if (errors.lxwErrorFromInt(err_num)) |err| return err;
+    //     return;
+    // }
 
     pub fn writeString(self: *Self, cell: core.Cell, string: []const u8, format: ?*Format) !void {
         var string_z: [:0]u8 = try self.ally.allocSentinel(u8, string.len, 0);
@@ -154,6 +151,32 @@ pub const Worksheet = struct {
 
     pub fn setFirstSheet(self: *Self) void {
         c.worksheet_set_first_sheet(self.ptr);
+    }
+
+    pub fn setColumn(self: *Self, cols: core.Cols, width: f64, format: ?*Format, options: ?*RowColOptions) !void {
+        var err_num: c.lxw_error = undefined;
+        if (options) |the_options| {
+            var c_options = the_options.toRaw();
+            err_num = c.worksheet_set_column_opt(self.ptr, cols.first, cols.last, width, if (format) |f| f.ptr else null, &c_options);
+        } else {
+            err_num = c.worksheet_set_column(self.ptr, cols.first, cols.last, width, if (format) |f| f.ptr else null);
+        }
+        if (errors.lxwErrorFromInt(err_num)) |err| return err;
+        return;
+    }
+};
+
+pub const RowColOptions = struct {
+    hidden: bool,
+    level: bool,
+    collapsed: bool,
+    const Self = @This();
+    pub fn toRaw(self: *Self) c.lxw_row_col_options {
+        return c.lxw_row_col_options{
+            .hidden = if (self.hidden) 1 else 0,
+            .level = if (self.level) 1 else 0,
+            .collapsed = if (self.collapsed) 1 else 0,
+        };
     }
 };
 
@@ -335,7 +358,7 @@ test "official example" {
     format.setBold();
 
     // /* Change the column width for clarity. */
-    try sheet.setColumn(.{ .first = 0, .last = 0 }, 20, null);
+    try sheet.setColumn(.{ .first = 0, .last = 0 }, 20, null, null);
 
     // /* Write some simple text. */
     try sheet.writeString(.{ .row = 0, .col = 0 }, "Hello?", null);
