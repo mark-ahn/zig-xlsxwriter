@@ -153,7 +153,7 @@ pub const Worksheet = struct {
     }
 
     pub fn setFirstSheet(self: *Self) void {
-        c.chartsheet_set_first_sheet(self.ptr);
+        c.worksheet_set_first_sheet(self.ptr);
     }
 };
 
@@ -297,6 +297,9 @@ pub const Chartsheet = struct {
     }
     pub fn active(self: *Self) void {
         c.chartsheet_activate(self.ptr);
+    }
+    pub fn setFirstSheet(self: *Self) void {
+        c.chartsheet_set_first_sheet(self.ptr);
     }
 };
 
