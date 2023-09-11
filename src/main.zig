@@ -151,6 +151,10 @@ pub const Worksheet = struct {
     pub fn active(self: *Self) void {
         c.worksheet_activate(self.ptr);
     }
+
+    pub fn setFirstSheet(self: *Self) void {
+        c.chartsheet_set_first_sheet(self.ptr);
+    }
 };
 
 pub const Chart = struct {
