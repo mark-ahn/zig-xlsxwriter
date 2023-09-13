@@ -34,31 +34,68 @@ pub const ChartSeries = struct {
         c.chart_series_set_name_range(self.ptr, sheetname_z orelse null, cell.row, cell.col);
     }
     // Set the line properties for a chart series. More...
-    pub fn setLine(self: *Self, line: *ChartLine) !void {
-        c.chart_series_set_line(self.ptr, line.ptr);
+    pub fn setLine(self: *Self, line: *const ChartLine) !void {
+        var chart_line = line.underlying();
+        c.chart_series_set_line(self.ptr, &chart_line);
     }
     // Set the fill properties for a chart series. More...
-    pub fn setFill(self: *Self, fill: *ChartFill) !void {
-        c.chart_series_set_fill(self.ptr, fill.ptr);
+    pub fn setFill(self: *Self, fill: *const ChartFill) !void {
+        var chart_fill = fill.underlying();
+        c.chart_series_set_fill(self.ptr, &chart_fill);
     }
     // Invert the fill color for negative series values. More...
     pub fn setInvertIfNegative(self: *Self) !void {
         c.chart_series_set_invert_if_negative(self.ptr);
     }
     // Set the pattern properties for a chart series. More...
-    pub fn setPattern(self: *Self, pattern: *ChartPattern) !void {
+    pub fn setPattern(self: *Self, pattern: *const ChartPattern) !void {
         c.chart_series_set_pattern(self.ptr, pattern.ptr);
     }
 };
 
-const ChartLine = struct {
-    ptr: *c.lxw_chart_line,
+pub const ChartLine = struct {
+    // ptr: *c.lxw_chart_line,
+    color: core.Color,
+    width: f32,
+    dash_type: u8,
+    transparency: u8,
+    const Self = @This();
+    pub fn underlying(self: *const Self) c.lxw_chart_line {
+        return .{
+            .none = 0,
+            .color = self.color,
+            .width = self.width,
+            .dash_type = self.dash_type,
+            .transparency = self.transparency,
+        };
+    }
 };
-const ChartFill = struct {
-    ptr: *c.lxw_chart_fill,
+pub const ChartFill = struct {
+    // ptr: *c.lxw_chart_fill,
+    color: core.Color,
+    transparency: u8,
+    const Self = @This();
+    pub fn underlying(self: *const Self) c.lxw_chart_fill {
+        return .{
+            .none = 0,
+            .color = self.color,
+            .transparency = @intCast(self.transparency),
+        };
+    }
 };
-const ChartPattern = struct {
-    ptr: *c.lxw_chart_pattern,
+pub const ChartPattern = struct {
+    // ptr: *c.lxw_chart_pattern,
+    fg_color: core.Color,
+    bg_color: core.Color,
+    type: u8,
+    const Self = @This();
+    pub fn underlying(self: *const Self) c.lxw_chart_pattern {
+        return .{
+            .fg_color = self.fg_color,
+            .bg_color = self.bg_color,
+            .type = self.type,
+        };
+    }
 };
 
 test ChartSeries {
@@ -74,6 +111,7 @@ test ChartSeries {
 
     var series = try chart.addSeries(null, "Sheet1!$A$1:$A$5");
     try series.setName("default");
+    try series.setFill(&ChartFill{ .color = core.Colors.blue.toInt(), .transparency = 0x80 });
 
     try chart_sheet.setChart(&chart);
     // sheet.insertChart(try lxw.Cell.of("A1"), chart: *Chart);
