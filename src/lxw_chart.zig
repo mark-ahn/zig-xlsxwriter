@@ -35,7 +35,8 @@ pub const ChartSeries = struct {
     }
     // Set the line properties for a chart series. More...
     pub fn setLine(self: *Self, line: ?*const ChartLine) !void {
-        var chart_line = line.underlying();
+        // var chart_line = line.underlying();
+        var chart_line = if (line) |the_line| the_line.underlying() else ChartLine.underlying(null);
         c.chart_series_set_line(self.ptr, &chart_line);
     }
     // Set the fill properties for a chart series. More...
@@ -124,7 +125,8 @@ test ChartSeries {
 
     var series = try chart.addSeries(null, "Sheet1!$A$1:$A$5");
     try series.setName("default");
-    try series.setFill(&ChartFill{ .color = core.Colors.blue.toInt(), .transparency = 0x80 });
+    try series.setFill(&ChartFill{ .color = core.Colors.blue.toInt(), .transparency = 50 });
+    try series.setLine(&ChartLine{});
 
     try chart_sheet.setChart(&chart);
     // sheet.insertChart(try lxw.Cell.of("A1"), chart: *Chart);
