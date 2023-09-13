@@ -11,6 +11,7 @@ const Allocator = std.mem.Allocator;
 pub const core = @import("core.zig");
 pub const charts = @import("lxw_chart.zig");
 pub usingnamespace core;
+pub usingnamespace charts;
 
 fn fromLxwError(err: c.lxw_error) ?XlsxError {
     return switch (err) {
