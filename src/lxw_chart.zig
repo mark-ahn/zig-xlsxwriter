@@ -34,13 +34,13 @@ pub const ChartSeries = struct {
         c.chart_series_set_name_range(self.ptr, sheetname_z orelse null, cell.row, cell.col);
     }
     // Set the line properties for a chart series. More...
-    pub fn setLine(self: *Self, line: *const ChartLine) !void {
+    pub fn setLine(self: *Self, line: ?*const ChartLine) !void {
         var chart_line = line.underlying();
         c.chart_series_set_line(self.ptr, &chart_line);
     }
     // Set the fill properties for a chart series. More...
-    pub fn setFill(self: *Self, fill: *const ChartFill) !void {
-        var chart_fill = fill.underlying();
+    pub fn setFill(self: *Self, fill: ?*const ChartFill) !void {
+        var chart_fill = if (fill) |the_fill| the_fill.underlying() else ChartFill.underlying(null);
         c.chart_series_set_fill(self.ptr, &chart_fill);
     }
     // Invert the fill color for negative series values. More...
@@ -49,35 +49,48 @@ pub const ChartSeries = struct {
     }
     // Set the pattern properties for a chart series. More...
     pub fn setPattern(self: *Self, pattern: *const ChartPattern) !void {
-        c.chart_series_set_pattern(self.ptr, pattern.ptr);
+        var chart_pattern = pattern.underlying();
+        c.chart_series_set_pattern(self.ptr, &chart_pattern);
     }
 };
 
 pub const ChartLine = struct {
+    const DashType = enum(u8) {
+        solid = c.LXW_CHART_LINE_DASH_SOLID,
+        round_dot = c.LXW_CHART_LINE_DASH_ROUND_DOT,
+        square_dot = c.LXW_CHART_LINE_DASH_SQUARE_DOT,
+        dash = c.LXW_CHART_LINE_DASH_DASH,
+        dash_dot = c.LXW_CHART_LINE_DASH_DASH_DOT,
+        long_dash = c.LXW_CHART_LINE_DASH_LONG_DASH,
+        long_dash_dot = c.LXW_CHART_LINE_DASH_LONG_DASH_DOT,
+        long_dash_dot_dot = c.LXW_CHART_LINE_DASH_LONG_DASH_DOT_DOT,
+    };
     // ptr: *c.lxw_chart_line,
-    color: core.Color,
-    width: f32,
-    dash_type: u8,
-    transparency: u8,
+    color: core.Color = core.Colors.black.toInt(),
+    width: f32 = 2.25,
+    dash_type: DashType = .solid,
+    transparency: u8 = 0,
     const Self = @This();
-    pub fn underlying(self: *const Self) c.lxw_chart_line {
+    pub fn underlying(this: ?*const Self) c.lxw_chart_line {
+        const self = this orelse return .{ .none = c.LXW_TRUE, .color = 0, .transparency = 0, .width = 0, .dash_type = 0 };
         return .{
-            .none = 0,
+            .none = c.LXW_FALSE,
             .color = self.color,
             .width = self.width,
-            .dash_type = self.dash_type,
+            .dash_type = @intFromEnum(self.dash_type),
             .transparency = self.transparency,
         };
     }
 };
 pub const ChartFill = struct {
     // ptr: *c.lxw_chart_fill,
-    color: core.Color,
-    transparency: u8,
+    color: core.Color = core.Colors.black.toInt(),
+    transparency: u8 = 0,
     const Self = @This();
-    pub fn underlying(self: *const Self) c.lxw_chart_fill {
+    pub fn underlying(this: ?*const Self) c.lxw_chart_fill {
+        const self = this orelse return .{ .none = c.LXW_TRUE, .color = 0, .transparency = 0 };
         return .{
-            .none = 0,
+            .none = c.LXW_FALSE,
             .color = self.color,
             .transparency = @intCast(self.transparency),
         };
