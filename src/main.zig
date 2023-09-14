@@ -69,6 +69,7 @@ pub const Workbook = struct {
     pub fn addFormat(self: *Self) Format {
         var format = c.workbook_add_format(@ptrCast(self.ptr));
         return Format{
+            .ally = self.ally,
             .ptr = format,
         };
     }
@@ -332,14 +333,143 @@ pub const Chartsheet = struct {
 // };
 
 pub const Format = struct {
+    ally: std.mem.Allocator,
     ptr: *c.lxw_format,
 
     const Self = @This();
 
-    pub fn setBold(self: *Self) void {
-        c.format_set_bold(@ptrCast(self.ptr));
+    pub fn setBold(self: *const Self) void {
+        c.format_set_bold(self.ptr);
+    }
+    pub fn setFontName(self: *const Self, font_name: []const u8) !void {
+        const font_name_z = try self.ally.dupeZ(u8, font_name);
+        defer self.ally.free(font_name_z);
+        c.format_set_font_name(self.ptr, font_name_z);
+    }
+    pub fn setFontSize(self: *const Self, size: f64) void {
+        c.format_set_font_size(self.ptr, size);
+    }
+    pub fn setFontColor(self: *const Self, color: core.Color) void {
+        c.format_set_font_color(self.ptr, color);
+    }
+    pub fn setItalic(self: *const Self) void {
+        c.format_set_italic(self.ptr);
+    }
+    pub const Underline = enum(c_int) {
+        single = c.LXW_UNDERLINE_SINGLE,
+        double = c.LXW_UNDERLINE_DOUBLE,
+        single_accounting = c.LXW_UNDERLINE_SINGLE_ACCOUNTING,
+        double_accounting = c.LXW_UNDERLINE_DOUBLE_ACCOUNTING,
+    };
+    pub fn setUnderline(self: *const Self, style: Underline) void {
+        c.format_set_underline(self.ptr, @intCast(@intFromEnum(style)));
+    }
+    pub fn setFontStrikeout(self: *const Self) void {
+        c.format_set_font_strikeout(self.ptr);
+    }
+    pub const Scripts = enum(c_int) {
+        superscript = c.LXW_FONT_SUPERSCRIPT,
+        subscript = c.LXW_FONT_SUBSCRIPT,
+    };
+    pub fn setFontScript(self: *const Self, style: Scripts) void {
+        c.format_set_font_script(self.ptr, @intCast(@intFromEnum(style)));
+    }
+
+    pub fn setBgColor(self: *const Self, color: core.Color) void {
+        c.format_set_bg_color(self.ptr, color);
+    }
+
+    pub fn setFgColor(self: *const Self, color: core.Color) void {
+        c.format_set_fg_color(self.ptr, color);
+    }
+
+    const Border = enum(c_int) {
+        none = c.LXW_BORDER_NONE,
+        thin = c.LXW_BORDER_THIN,
+        medium = c.LXW_BORDER_MEDIUM,
+        dashed = c.LXW_BORDER_DASHED,
+        dotted = c.LXW_BORDER_DOTTED,
+        thick = c.LXW_BORDER_THICK,
+        double = c.LXW_BORDER_DOUBLE,
+        hair = c.LXW_BORDER_HAIR,
+        medium_dashed = c.LXW_BORDER_MEDIUM_DASHED,
+        dash_dot = c.LXW_BORDER_DASH_DOT,
+        medium_dash_dot = c.LXW_BORDER_MEDIUM_DASH_DOT,
+        dash_dot_dot = c.LXW_BORDER_DASH_DOT_DOT,
+        medium_dash_dot_dot = c.LXW_BORDER_MEDIUM_DASH_DOT_DOT,
+        slant_dash_dot = c.LXW_BORDER_SLANT_DASH_DOT,
+    };
+
+    pub fn setBorder(self: *const Self, style: Border) void {
+        c.format_set_border(self.ptr, @intCast(@intFromEnum(style)));
+    }
+
+    pub fn setBottom(self: *const Self, style: Border) void {
+        c.format_set_bottom(self.ptr, @intCast(@intFromEnum(style)));
+    }
+
+    pub fn setTop(self: *const Self, style: Border) void {
+        c.format_set_top(self.ptr, @intCast(@intFromEnum(style)));
+    }
+
+    pub fn setLeft(self: *const Self, style: Border) void {
+        c.format_set_left(self.ptr, @intCast(@intFromEnum(style)));
+    }
+
+    pub fn setRight(self: *const Self, style: Border) void {
+        c.format_set_right(self.ptr, @intCast(@intFromEnum(style)));
+    }
+
+    pub fn setBorderColor(self: *const Self, color: core.Color) void {
+        c.format_set_border_color(self.ptr, color);
+    }
+
+    pub fn setBottomColor(self: *const Self, color: core.Color) void {
+        c.format_set_bottom_color(self.ptr, color);
+    }
+
+    pub fn setTopColor(self: *const Self, color: core.Color) void {
+        c.format_set_top_color(self.ptr, color);
+    }
+
+    pub fn setLeftColor(self: *const Self, color: core.Color) void {
+        c.format_set_left_color(self.ptr, color);
+    }
+
+    pub fn setRightColor(self: *const Self, color: core.Color) void {
+        c.format_set_right_color(self.ptr, color);
     }
 };
+
+test Format {
+    var book = try Workbook.init(testing.allocator, "demo-zig.xlsx");
+    defer book.deinit() catch |err| {
+        var erre = errors.lxwErrorEnumFromError(err);
+        std.debug.print("deinit err - {s}\n", .{erre.toString()});
+    };
+    const color = core.Colors.red.toInt();
+    const format = book.addFormat();
+    format.setBgColor(color);
+    format.setBold();
+    format.setBorder(.none);
+    format.setBorderColor(color);
+    format.setFgColor(color);
+    format.setFontColor(color);
+    try format.setFontName("some");
+    format.setFontScript(.superscript);
+    format.setFontSize(64);
+    format.setFontStrikeout();
+    format.setItalic();
+    format.setLeft(.none);
+    format.setLeftColor(color);
+    format.setRight(.none);
+    format.setRightColor(color);
+    format.setTop(.none);
+    format.setTopColor(color);
+    format.setBottom(.none);
+    format.setBottomColor(color);
+    format.setUnderline(.single);
+}
 
 test "official example" {
     //d
